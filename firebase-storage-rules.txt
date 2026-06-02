@@ -43,6 +43,12 @@ service firebase.storage {
       allow write: if isSelf(userId) && isSmall() && isMediaType();
     }
 
+    /* ---------- Group profile pictures ---------- */
+    match /group_chats/{communityId}/{allPaths=**} {
+      allow read:  if isSignedIn();
+      allow write: if isSignedIn() && isSmall() && isMediaType();
+    }
+
     /* ---------- One-to-one chat media ---------- */
     // Both participants can upload to the same chatId folder
     match /chat_media/{chatId}/{allPaths=**} {
@@ -80,6 +86,12 @@ service firebase.storage {
     match /activity_memories/{allPaths=**} {
       allow read: if isSignedIn();
       allow write: if isSignedIn() && request.resource.size < 50 * 1024 * 1024 && isMediaType();
+    }
+
+    /* ---------- Activity chat media ---------- */
+    match /activity_chat_media/{activityId}/{userId}/{allPaths=**} {
+      allow read:  if isSignedIn();
+      allow write: if isSelf(userId) && isSmall() && isMediaType();
     }
 
     /* ---------- Fallback: deny everything else ---------- */
