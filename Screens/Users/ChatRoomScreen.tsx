@@ -72,8 +72,6 @@ import ImageViewing from 'react-native-image-viewing';
 import createStyles, { SPACING, FONT_SIZES } from '../context/appStyles';
 import { useTheme } from '../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
-import GifStickerPicker from '../../components/GifStickerPicker';
-import { isTenorConfigured } from '../../services/tenor';
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -138,6 +136,14 @@ interface Message {
   uploadError?: string;
 }
 
+interface PinnedMessage {
+  messageId: string;
+  text: string;
+  senderId?: string;
+  pinnedBy?: string;
+  pinnedAt?: any;
+}
+
 const AVATAR_PLACEHOLDER = require('../../assets/avatar-placeholder.png');
 
 const EMOJI_API_URL =
@@ -146,6 +152,35 @@ const EMOJI_API_URL =
 const FALLBACK_EMOJIS = [
   '😀','😂','🤣','😊','😇','🥰','😍','🤩','😘','😗','😙','😚','😋','😛','😜','🤪','😝','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','😵','🤯','🤠','🥳','😎','🤓','🤔','🫣','🤫','🫢','🫡','🤥','🫠','😮‍💨','😤','😠','😡','🤬','😈','👿','💀','👻','👽','👾','🤖','💩','🤡','👹','👺','😺','😸','😹','😻','😼','😽','🙀','😿','😾','👋','🤚','🖐️','✋','🖖','👌','🤏','🤞','✌️','🤘','🤙','👈','👉','👆','👇','☝️','👍','👎','✊','👊','🤛','🤜','👏','🙌','🫶','🤲','🤝',
 ];
+
+const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+
+const cleanTrailingPunctuation = (value: string) => value.replace(/[),.!?;:]+$/g, '');
+
+const normalizeUrl = (value: string) => {
+  const cleaned = cleanTrailingPunctuation(value.trim());
+  if (!cleaned) return '';
+  return /^https?:\/\//i.test(cleaned) ? cleaned : `https://${cleaned}`;
+};
+
+const splitMessageByUrls = (text: string) => {
+  const parts: Array<{ text: string; isLink: boolean }> = [];
+  let lastIndex = 0;
+  const matches = Array.from(text.matchAll(URL_REGEX));
+  for (const match of matches) {
+    const found = match[0];
+    const start = match.index ?? 0;
+    if (start > lastIndex) {
+      parts.push({ text: text.slice(lastIndex, start), isLink: false });
+    }
+    parts.push({ text: found, isLink: true });
+    lastIndex = start + found.length;
+  }
+  if (lastIndex < text.length) {
+    parts.push({ text: text.slice(lastIndex), isLink: false });
+  }
+  return parts.length > 0 ? parts : [{ text, isLink: false }];
+};
 
 const ChatRoomScreen = () => {
   const route = useRoute<ChatRoomScreenRouteProp>();
@@ -164,7 +199,7 @@ const ChatRoomScreen = () => {
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [showMessageOptions, setShowMessageOptions] = useState(false);
   const [showAttachmentOptions, setShowAttachmentOptions] = useState(false);
-  const [showGifPicker, setShowGifPicker] = useState(false);
+  const [pinnedMessage, setPinnedMessage] = useState<PinnedMessage | null>(null);
   
 
   // 🖼 Unified media viewer
@@ -275,6 +310,12 @@ const ChatRoomScreen = () => {
 
     loadInitialData();
 
+    const chatMetaUnsubscribe = onSnapshot(doc(db, 'chats', chatId), (snap) => {
+      if (snap.exists()) {
+        setPinnedMessage((snap.data()?.pinnedMessage as PinnedMessage) || null);
+      }
+    });
+
     // Set up real-time listener for new messages (after initial load)
     const messagesRef = collection(db, 'chats', chatId, 'messages');
     const q = query(messagesRef, orderBy('createdAt', 'asc'));
@@ -298,6 +339,7 @@ const ChatRoomScreen = () => {
 
     return () => {
       unsubscribe();
+      chatMetaUnsubscribe();
     };
   }, [chatId, currentUser, recipientId, navigation]);
 
@@ -677,6 +719,56 @@ const handlePickFile = async () => {
     sendMessage({ text: newMessage.trim() });
   };
 
+  const getPinPreview = (msg: Message) => {
+    if (msg.text && msg.text.trim()) return msg.text.trim().slice(0, 160);
+    if (msg.mediaType === 'image') return 'Image';
+    if (msg.mediaType === 'video') return 'Video';
+    if (msg.mediaType === 'file') return msg.fileName ? `File: ${msg.fileName}` : 'File';
+    return 'Pinned message';
+  };
+
+  const togglePinSelectedMessage = async () => {
+    if (!selectedMessage || !currentUser) return;
+    const chatDocRef = doc(db, 'chats', chatId);
+    try {
+      if (pinnedMessage?.messageId === selectedMessage.id) {
+        await updateDoc(chatDocRef, { pinnedMessage: null });
+      } else {
+        await updateDoc(chatDocRef, {
+          pinnedMessage: {
+            messageId: selectedMessage.id,
+            text: getPinPreview(selectedMessage),
+            senderId: selectedMessage.senderId,
+            pinnedBy: currentUser.uid,
+            pinnedAt: serverTimestamp(),
+          },
+        });
+      }
+    } catch (error) {
+      console.error('Failed to toggle pin:', error);
+      Alert.alert('Error', 'Could not update pinned message.');
+    } finally {
+      setShowMessageOptions(false);
+      setSelectedMessage(null);
+    }
+  };
+
+  const openMessageLink = async (rawUrl: string) => {
+    const url = normalizeUrl(rawUrl);
+    if (!url) return;
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen) {
+        Alert.alert('Invalid link', 'This link cannot be opened.');
+        return;
+      }
+      await Linking.openURL(url);
+    } catch (error) {
+      console.error('Failed to open link:', error);
+      Alert.alert('Error', 'Could not open this link.');
+    }
+  };
+
   // 📋 Copy message to clipboard
   const copyMessage = async (text: string) => {
     try {
@@ -1023,21 +1115,8 @@ const handlePickFile = async () => {
                 }}>
                   <ActivityIndicator size="large" color={colors.primary} />
                 </View>
-                <View style={{
-                  height: 4,
-                  backgroundColor: colors.border || '#E0E0E0',
-                  borderRadius: 2,
-                  overflow: 'hidden',
-                  marginTop: SPACING.xsmall,
-                }}>
-                  <View style={{
-                    height: '100%',
-                    width: `${item.uploadProgress || 0}%`,
-                    backgroundColor: colors.primary,
-                  }} />
-                </View>
                 <Text style={[styles.timestampText, { marginTop: SPACING.xsmall, fontSize: FONT_SIZES.xsmall }]}>
-                  Uploading {item.uploadProgress || 0}%
+                  Uploading media...
                 </Text>
               </>
             )}
@@ -1112,7 +1191,22 @@ const handlePickFile = async () => {
 
         {item.text ? (
           <Text style={isCurrentUser ? styles.myMessageText : styles.otherMessageText}>
-            {item.text}
+            {splitMessageByUrls(item.text).map((part, idx) =>
+              part.isLink ? (
+                <Text
+                  key={`link_${item.id}_${idx}`}
+                  style={{
+                    textDecorationLine: 'underline',
+                    color: isCurrentUser ? '#D7EEFF' : colors.primary,
+                  }}
+                  onPress={() => openMessageLink(part.text)}
+                >
+                  {part.text}
+                </Text>
+              ) : (
+                <Text key={`txt_${item.id}_${idx}`}>{part.text}</Text>
+              )
+            )}
           </Text>
         ) : null}
 
@@ -1175,6 +1269,28 @@ const handlePickFile = async () => {
 
         <View style={{ width: 40 }} />
       </View>
+      {pinnedMessage ? (
+        <View
+          style={{
+            marginHorizontal: 12,
+            marginTop: 6,
+            marginBottom: 6,
+            borderRadius: 10,
+            paddingHorizontal: 10,
+            paddingVertical: 8,
+            backgroundColor: colors.cardBackground,
+            borderWidth: 1,
+            borderColor: colors.border,
+            flexDirection: 'row',
+            alignItems: 'center',
+          }}
+        >
+          <Ionicons name="pin" size={14} color={colors.primary} style={{ marginRight: 8 }} />
+          <Text style={{ color: colors.textSecondary, flex: 1 }} numberOfLines={1}>
+            {pinnedMessage.text}
+          </Text>
+        </View>
+      ) : null}
 
       <FlatList
         ref={flatListRef}
@@ -1226,15 +1342,6 @@ const handlePickFile = async () => {
               color={colors.primary}
             />
             </TouchableOpacity>
-            {isTenorConfigured() && (
-              <TouchableOpacity
-                onPress={() => setShowGifPicker(true)}
-                style={styles.attachmentButton}
-                accessibilityLabel="GIFs & Stickers"
-              >
-                <Ionicons name="film-outline" size={FONT_SIZES.xxlarge} color={colors.primary} />
-              </TouchableOpacity>
-            )}
 
             <TextInput
               style={[styles.textInput, { maxHeight: 120, textAlignVertical: 'top' }]}
@@ -1547,6 +1654,19 @@ const handlePickFile = async () => {
                     <Text style={{ color: colors.text, fontSize: 16 }}>Copy</Text>
                   </TouchableOpacity>
                 )}
+                <TouchableOpacity
+                  style={{
+                    paddingVertical: 16,
+                    paddingHorizontal: 20,
+                    borderBottomWidth: 1,
+                    borderBottomColor: colors.border,
+                  }}
+                  onPress={togglePinSelectedMessage}
+                >
+                  <Text style={{ color: colors.text, fontSize: 16 }}>
+                    {pinnedMessage?.messageId === selectedMessage.id ? 'Unpin' : 'Pin'}
+                  </Text>
+                </TouchableOpacity>
                 {selectedMessage.senderId === currentUser?.uid && (
                   <TouchableOpacity
                     style={{
@@ -1582,13 +1702,6 @@ const handlePickFile = async () => {
           </Pressable>
         </Pressable>
       </Modal>
-
-      {/* GIF & Sticker Picker (Tenor – WhatsApp-style) */}
-      <GifStickerPicker
-        visible={showGifPicker}
-        onClose={() => setShowGifPicker(false)}
-        onSelectGif={(url) => sendMessage({ mediaUrl: url, mediaType: 'image' })}
-      />
 
       {/* 📎 Attachment Options Modal */}
       <Modal

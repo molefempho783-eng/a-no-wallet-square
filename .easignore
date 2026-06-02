@@ -32,7 +32,13 @@ functions/.env.local
 .git/
 android/.gradle/
 android/app/build/
+android/app/.cxx/
+android/**/.cxx/
 android/build/
+# Firebase Cloud Functions deps — deploy functions separately; not needed for the app AAB
+functions/node_modules/
 *.log
 coverage/
 __tests__/
+*.hprof
+android/captures/

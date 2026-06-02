@@ -12,6 +12,7 @@ import {
   Keyboard,
   StyleSheet,
   FlatList,
+  Switch,
   Platform,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
@@ -58,6 +59,7 @@ const [locationAddress, setLocationAddress] = useState("");
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState("");
+  const [allowMembersToCreateGroups, setAllowMembersToCreateGroups] = useState(true);
   const [isPickingImage, setIsPickingImage] = useState(false);
 
   const GOOGLE_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || 'AIzaSyDR5JhBnTT53KmUwNQI6QcWG5RjY5sdYRM';
@@ -222,6 +224,7 @@ const validateLocation = async (): Promise<boolean> => {
         description: description.trim() || undefined,
         location: locationAddress.trim() || undefined,
         categories: categoriesArray.length > 0 ? categoriesArray : undefined, 
+        allowMembersToCreateGroups,
         createdBy: auth.currentUser.uid,
         createdAt: new Date(),
         logo: logoUrl || undefined,
@@ -235,6 +238,7 @@ const validateLocation = async (): Promise<boolean> => {
           description: description.trim() || undefined,
           location: locationAddress.trim() || undefined, // Using locationAddress
           categories: categoriesArray.length > 0 ? categoriesArray : undefined, // <-- ADD THIS
+          allowMembersToCreateGroups,
           logo: logoUrl || undefined,
           createdBy: auth.currentUser.uid,
           createdAt: new Date(),
@@ -244,6 +248,7 @@ const validateLocation = async (): Promise<boolean> => {
       setDescription("");
       setLocationAddress("");
       setCategories(""); 
+      setAllowMembersToCreateGroups(true);
       setSelectedPlaceId(null);
       setCommunityLogoUri(null);
     } catch (e: any) {
@@ -420,6 +425,30 @@ const validateLocation = async (): Promise<boolean> => {
                 ))}
               </ScrollView>
             )}
+          </View>
+
+          <View
+            style={{
+              marginBottom: SPACING.medium,
+              padding: 14,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: colors.borderColor,
+              backgroundColor: colors.cardBackground,
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <View style={{ flex: 1, paddingRight: 10 }}>
+              <Text style={{ color: colors.text, fontSize: FONT_SIZES.medium, fontWeight: "600" }}>
+                Allow members to create groups
+              </Text>
+              <Text style={{ color: colors.textSecondary, fontSize: FONT_SIZES.small, marginTop: 4 }}>
+                When enabled, community members can create new group chats.
+              </Text>
+            </View>
+            <Switch value={allowMembersToCreateGroups} onValueChange={setAllowMembersToCreateGroups} />
           </View>
 
           {/* Create Button */}

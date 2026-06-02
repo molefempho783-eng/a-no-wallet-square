@@ -58,6 +58,18 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/businesses/$(businessId)).data.ownerId == request.auth.uid;
     }
 
+    function canCreateCommunityGroups(communityId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/communities/$(communityId))
+        && (
+          get(/databases/$(database)/documents/communities/$(communityId)).data.createdBy == request.auth.uid
+          || (
+            isMemberByUserDoc(communityId)
+            && get(/databases/$(database)/documents/communities/$(communityId)).data.get('allowMembersToCreateGroups', false) == true
+          )
+        );
+    }
+
     // Check if user is a chat participant (supports both array and map formats)
     // For get/update operations
     function isChatParticipant(chatId) {
@@ -252,14 +264,7 @@ service cloud.firestore {
       match /groupChats/{chatId} {
         allow get, list: if isSignedIn();
 
-        allow create: if (
-          isMemberByUserDoc(communityId)
-          ||
-          (
-            exists(/databases/$(database)/documents/communities/$(communityId))
-            && get(/databases/$(database)/documents/communities/$(communityId)).data.createdBy == request.auth.uid
-          )
-        )
+        allow create: if canCreateCommunityGroups(communityId)
         && request.resource.data.keys().hasAny(['name', 'title']);
 
         allow update: if (
@@ -275,7 +280,7 @@ service cloud.firestore {
           ||
           (
             isMemberOfGroupChat(communityId, chatId)
-            && request.resource.data.diff(resource.data).changedKeys().hasOnly(['lastMessageText', 'lastMessageSenderId', 'lastMessageTimestamp', 'unreadCount'])
+            && request.resource.data.diff(resource.data).changedKeys().hasOnly(['lastMessageText', 'lastMessageSenderId', 'lastMessageTimestamp', 'unreadCount', 'pinnedMessage'])
           )
           ||
           (
@@ -346,7 +351,7 @@ service cloud.firestore {
       match /chats/{chatId} {
         allow get, list: if isSignedIn();
 
-        allow create: if isMemberByUserDoc(communityId)
+        allow create: if canCreateCommunityGroups(communityId)
           && request.resource.data.keys().hasAny(['name', 'title']);
 
         allow update: if isMemberByUserDoc(communityId)
@@ -505,11 +510,7 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.get('participants', []) is list
-        && request.auth.uid in request.resource.data.get('participants', [])
-        && (request.resource.data.get('visibility', 'everyone') == 'everyone'
-            || (request.resource.data.get('visibility') == 'friends_only'
-                && request.resource.data.get('allowedViewers', []) is list
-                && request.auth.uid in request.resource.data.get('allowedViewers', [])));
+        && request.auth.uid in request.resource.data.get('participants', []);
 
       allow update: if isSignedIn() && (
         resource.data.createdBy == request.auth.uid ||

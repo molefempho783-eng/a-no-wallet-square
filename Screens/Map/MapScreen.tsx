@@ -201,6 +201,7 @@ export default function MapScreen() {
   const navigation = useNavigation<NavigationProp>();
   const insets = useSafeAreaInsets();
   const fabBottom = TAB_BAR_CONTENT_HEIGHT + insets.bottom + FAB_BOTTOM_SPACING;
+  const modalBottomSafeSpace = Math.max(insets.bottom, Platform.OS === 'android' ? 28 : 0);
   const mapRef = useRef<MapView>(null);
   const auth = getAuth();
   const locationSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
@@ -299,7 +300,6 @@ export default function MapScreen() {
   const [locationSuggestions, setLocationSuggestions] = useState<PlaceSuggestion[]>([]);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
-  const [activityFriendsOnly, setActivityFriendsOnly] = useState(false);
   const [activityRequiresApproval, setActivityRequiresApproval] = useState(false);
 
   const GOOGLE_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || 'AIzaSyDR5JhBnTT53KmUwNQI6QcWG5RjY5sdYRM';
@@ -480,7 +480,6 @@ export default function MapScreen() {
   // Fetch nearby activities within 50km radius
   useEffect(() => {
     if (!userLocation) return;
-
     const centerLat = userLocation.coords.latitude;
     const centerLng = userLocation.coords.longitude;
     // 50km radius ≈ 0.45 degrees (roughly)
@@ -955,20 +954,6 @@ export default function MapScreen() {
         );
       }
 
-      let allowedViewers: string[] | undefined;
-      const visibility = activityFriendsOnly ? 'friends_only' : 'everyone';
-      if (activityFriendsOnly) {
-        const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-        const friendsData = userDoc.exists() ? userDoc.data()?.friends : null;
-        const friendIds: string[] = [];
-        if (Array.isArray(friendsData)) {
-          friendIds.push(...friendsData);
-        } else if (friendsData && typeof friendsData === 'object') {
-          friendIds.push(...Object.keys(friendsData).filter((uid) => friendsData[uid] === true));
-        }
-        allowedViewers = [auth.currentUser.uid, ...friendIds];
-      }
-
       const activityRef = await addDoc(collection(db, 'activities'), {
         title: activityTitle.trim(),
         activityType: activityType,
@@ -981,9 +966,8 @@ export default function MapScreen() {
         participants: [auth.currentUser.uid],
         startTime: Timestamp.fromDate(combinedStartDateTime),
         endTime: Timestamp.fromDate(combinedEndDateTime),
-        visibility,
+        visibility: 'everyone',
         requiresApproval: activityRequiresApproval,
-        ...(allowedViewers && { allowedViewers }),
       });
       await setDoc(doc(db, 'activityChats', activityRef.id), {
         activityId: activityRef.id,
@@ -1010,7 +994,6 @@ export default function MapScreen() {
       setSelectedPlaceId(null);
       setLocationSuggestions([]);
       setShowLocationSuggestions(false);
-      setActivityFriendsOnly(false);
       setActivityRequiresApproval(false);
     } catch (error: any) {
       console.error('Error creating activity:', error);
@@ -1985,7 +1968,14 @@ export default function MapScreen() {
             onPress={() => setSelectedActivity(null)}
           />
           <View
-            style={[localStyles.bottomSheetContent, { backgroundColor: colors.card }]}
+            style={[
+              localStyles.bottomSheetContent,
+              {
+                backgroundColor: colors.card,
+                marginBottom: modalBottomSafeSpace,
+                paddingBottom: modalBottomSafeSpace + 24,
+              },
+            ]}
             onStartShouldSetResponder={() => true}
           >
             {/* Handle bar */}
@@ -2371,7 +2361,10 @@ export default function MapScreen() {
                     <Ionicons name="close" size={24} color={colors.text} />
                   </TouchableOpacity>
                 </View>
-                <ScrollView style={{ maxHeight: 280 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 }}>
+                <ScrollView
+                  style={{ maxHeight: 280 }}
+                  contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: modalBottomSafeSpace + 24 }}
+                >
                   {selectedMapSpecial.imageUrl ? (
                     <Image
                       source={{ uri: selectedMapSpecial.imageUrl }}
@@ -3031,18 +3024,6 @@ export default function MapScreen() {
                       </Text>
                     </TouchableOpacity>
                   ))}
-                </View>
-
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginVertical: 16, paddingHorizontal: 4 }}>
-                  <Text style={{ fontSize: 16, color: colors.text, flex: 1 }}>
-                    Only my friends can see this activity
-                  </Text>
-                  <Switch
-                    value={activityFriendsOnly}
-                    onValueChange={setActivityFriendsOnly}
-                    trackColor={{ false: colors.border, true: colors.primary }}
-                    thumbColor="#FFFFFF"
-                  />
                 </View>
 
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginVertical: 16, paddingHorizontal: 4 }}>

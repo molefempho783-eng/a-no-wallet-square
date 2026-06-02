@@ -68,6 +68,8 @@ const CommunityDetailScreen = () => {
   const globalStyles = createStyles(colors).global;
 
   const isCreator = !!uid && communityData.createdBy === uid;
+  const canCreateGroup =
+    isCreator || (!!isMember && communityData.allowMembersToCreateGroups === true);
 
   // Track auth
   useEffect(() => {
@@ -266,7 +268,7 @@ const CommunityDetailScreen = () => {
       contentContainerStyle={[
         contentStyle,
         // Keep content clear of floating create-group button.
-        isCreator && { paddingBottom: 110 },
+        canCreateGroup && { paddingBottom: 110 },
       ]}
       refreshControl={
         <RefreshControl
@@ -466,7 +468,7 @@ const CommunityDetailScreen = () => {
         </>
       )}
     </ScrollView>
-    {isCreator && showCreateGroupHint && (
+    {canCreateGroup && showCreateGroupHint && (
       <View
         pointerEvents="none"
         style={{
@@ -484,11 +486,11 @@ const CommunityDetailScreen = () => {
         }}
       >
         <Text style={{ color: colors.textPrimary, fontSize: FONT_SIZES.small }}>
-          Create group chat
+          {isCreator ? "Create group chat" : "Create group in this community"}
         </Text>
       </View>
     )}
-    {isCreator && (
+    {canCreateGroup && (
       <Pressable
         style={{
           position: "absolute",

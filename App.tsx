@@ -7,10 +7,10 @@ import { createStackNavigator } from "@react-navigation/stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 import messaging from '@react-native-firebase/messaging';
-import { getApps } from '@react-native-firebase/app';
+import firebaseNativeApp, { getApps } from '@react-native-firebase/app';
 import * as Notifications from 'expo-notifications';
 import { collection, query, where, onSnapshot } from "firebase/firestore";
-import { db } from "./firebaseConfig";
+import { db, firebaseConfig } from "./firebaseConfig";
 
 import { AuthProvider, useAuth } from "./AuthContext";
 import { ThemeProvider, useTheme } from "./Screens/context/ThemeContext";
@@ -19,6 +19,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import OnboardingScreen from "./Screens/OnboardingScreen";
 import AuthScreen from "./Screens/AuthScreen";
+import TermsAndConditionsScreen from "./Screens/Legal/TermsAndConditionsScreen";
+import PrivacyPolicyScreen from "./Screens/Legal/PrivacyPolicyScreen";
 import CommunityScreen from "./Screens/Community/CommunityScreen";
 import CommunityDetailScreen from "./Screens/Community/CommunityDetailScreen";
 import CreateCommunityScreen from "./Screens/Community/CreateCommunityScreen";
@@ -32,6 +34,7 @@ import UserScreen from "./Screens/Users/UsersScreen";
 import CreateGroupChatScreen from "./Screens/Community/Group/CreateGroupChatScreen";
 
 import MapScreen from "./Screens/Map/MapScreen";
+import DonationScreen from "./Screens/DonationScreen";
 import ActivityChatScreen from "./Screens/Map/ActivityChatScreen";
 import ActivityDetailScreen from "./Screens/Map/ActivityDetailScreen";
 import CreateMapSpecialScreen from "./Screens/Map/CreateMapSpecialScreen";
@@ -151,6 +154,7 @@ const TabsNavigator = () => {
           if (route.name === "CommunityScreen") iconName = "people-outline";
           else if (route.name === "UserScreen") iconName = "person-outline";
           else if (route.name === "MapScreen") iconName = "map-outline";
+          else if (route.name === "DonationScreen") iconName = "wallet-outline";
           return <Ionicons name={iconName} size={size + 4} color={color} />;
         },
       })}
@@ -164,6 +168,7 @@ const TabsNavigator = () => {
         }}
       />
       <Tab.Screen name="MapScreen" component={MapScreen} />
+      <Tab.Screen name="DonationScreen" component={DonationScreen} />
     </Tab.Navigator>
   );
 };
@@ -191,96 +196,121 @@ const MainNavigator = () => {
     checkOnboardingStatus();
   }, []);
 
-  // ----- [ADDED] Handle FCM notifications -----
+  // ----- FCM: requires android/app/google-services.json + com.google.gms.google-services -----
   useEffect(() => {
     let mounted = true;
     let unsubscribeForeground: (() => void) | null = null;
     let unsubscribeTokenRefresh: (() => void) | null = null;
     let notificationResponseSubscription: any = null;
-    
-    // React Native Firebase auto-initializes from google-services.json
-    // We'll set up listeners and handle any initialization errors gracefully
+
+    const ensureNativeFirebaseApp = async (): Promise<boolean> => {
+      if (getApps().length > 0) return true;
+      // Fallback if an old APK was installed before google-services was added (rebuild recommended).
+      if (Platform.OS === "android") {
+        try {
+          await firebaseNativeApp.initializeApp(firebaseConfig);
+          return getApps().length > 0;
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.warn("Native Firebase initializeApp fallback:", msg);
+        }
+      }
+      return false;
+    };
+
     const setupMessaging = () => {
       try {
-        console.log('🔔 Setting up Firebase messaging listeners...');
+        console.log("🔔 Setting up Firebase messaging listeners...");
         const messagingInstance = messaging();
-        
-    // Handle notification when app is in foreground
-        unsubscribeForeground = messagingInstance.onMessage(async remoteMessage => {
-      console.log('📬 FCM message received in foreground:', remoteMessage);
-      
-      const data = remoteMessage.data || {};
-      const notification = remoteMessage.notification;
 
-      // FCM doesn't automatically display notifications when app is in foreground
-      // We need to show them manually using expo-notifications
-      if (notification) {
-        try {
-          console.log('📬 Displaying foreground notification:', notification.title, notification.body);
-          await ensureAndroidNotificationChannel();
-          await Notifications.scheduleNotificationAsync({
-            content: {
-              title: notification.title || 'Notification',
-              body: notification.body || '',
-              data: data,
-              sound: true,
-              ...(Platform.OS === 'android' && { channelId: 'default' }),
-            },
-            trigger: null, // Show immediately
-          });
-          console.log('✅ Foreground notification scheduled successfully');
-        } catch (error: any) {
-          console.error('❌ Failed to display foreground notification:', error);
-          console.error('Error details:', error.message, error.stack);
-        }
-      }
-    });
+        unsubscribeForeground = messagingInstance.onMessage(async (remoteMessage) => {
+          console.log("📬 FCM message received in foreground:", remoteMessage);
 
-    // Handle notification taps from expo-notifications (foreground notifications)
-        notificationResponseSubscription = Notifications.addNotificationResponseReceivedListener((response: any) => {
-      const data = response.notification.request.content.data;
-      console.log('📬 Foreground notification tapped:', data);
-      handleNotificationNavigation(data);
-    });
-
-    // Handle notification tap when app is in background or quit state
-        messagingInstance.onNotificationOpenedApp(remoteMessage => {
-      console.log('📬 Notification opened app from background:', remoteMessage);
-      const data = remoteMessage.data || {};
-      handleNotificationNavigation(data);
-    });
-
-    // Check if app was opened from a quit state via notification
-        messagingInstance
-      .getInitialNotification()
-      .then(remoteMessage => {
-        if (remoteMessage) {
-          console.log('📬 Notification opened app from quit state:', remoteMessage);
           const data = remoteMessage.data || {};
-          // Use a small timeout to ensure the navigator is ready
-          setTimeout(() => {
-            handleNotificationNavigation(data);
-          }, 1000);
-        }
-          })
-          .catch(err => {
-            console.warn('⚠️ Could not get initial notification:', err.message);
-      });
+          const notification = remoteMessage.notification;
 
-    // Handle token refresh
-        unsubscribeTokenRefresh = messagingInstance.onTokenRefresh(token => {
-      console.log('🔄 FCM token refreshed:', token.substring(0, 20) + '...');
-      savePushTokenToUser(token);
-    });
-      } catch (messagingError: any) {
-        console.warn('⚠️ Could not set up messaging listeners:', messagingError.message);
-        console.warn('This may be normal if Firebase is still initializing or google-services.json is missing');
+          if (notification) {
+            try {
+              console.log(
+                "📬 Displaying foreground notification:",
+                notification.title,
+                notification.body
+              );
+              await ensureAndroidNotificationChannel();
+              await Notifications.scheduleNotificationAsync({
+                content: {
+                  title: notification.title || "Notification",
+                  body: notification.body || "",
+                  data: data,
+                  sound: true,
+                  ...(Platform.OS === "android" && { channelId: "default" }),
+                },
+                trigger: null,
+              });
+              console.log("✅ Foreground notification scheduled successfully");
+            } catch (error: unknown) {
+              const err = error as { message?: string; stack?: string };
+              console.error("❌ Failed to display foreground notification:", error);
+              console.error("Error details:", err?.message, err?.stack);
+            }
+          }
+        });
+
+        notificationResponseSubscription = Notifications.addNotificationResponseReceivedListener(
+          (response: { notification: { request: { content: { data: Record<string, unknown> } } } }) => {
+            const data = response.notification.request.content.data;
+            console.log("📬 Foreground notification tapped:", data);
+            handleNotificationNavigation(data);
+          }
+        );
+
+        messagingInstance.onNotificationOpenedApp((remoteMessage) => {
+          console.log("📬 Notification opened app from background:", remoteMessage);
+          const data = remoteMessage.data || {};
+          handleNotificationNavigation(data);
+        });
+
+        messagingInstance
+          .getInitialNotification()
+          .then((remoteMessage) => {
+            if (remoteMessage) {
+              console.log("📬 Notification opened app from quit state:", remoteMessage);
+              const data = remoteMessage.data || {};
+              setTimeout(() => {
+                handleNotificationNavigation(data);
+              }, 1000);
+            }
+          })
+          .catch((err: { message?: string }) => {
+            console.warn("⚠️ Could not get initial notification:", err?.message);
+          });
+
+        unsubscribeTokenRefresh = messagingInstance.onTokenRefresh((token) => {
+          console.log("🔄 FCM token refreshed:", token.substring(0, 20) + "...");
+          savePushTokenToUser(token);
+        });
+      } catch (messagingError: unknown) {
+        const msg = messagingError instanceof Error ? messagingError.message : String(messagingError);
+        console.warn("⚠️ Could not set up messaging listeners:", msg);
+        console.warn(
+          "Rebuild the Android app after adding android/app/google-services.json and the Google Services Gradle plugin."
+        );
       }
     };
-    
-    // Call setup with a small delay to ensure React Native Firebase is ready
+
     const timer = setTimeout(() => {
-      setupMessaging();
+      void (async () => {
+        if (!mounted) return;
+        const ready = await ensureNativeFirebaseApp();
+        if (!mounted) return;
+        if (!ready) {
+          console.warn(
+            "⚠️ No Firebase native app [DEFAULT]. Add android/app/google-services.json, apply com.google.gms.google-services, then rebuild (npx expo run:android)."
+          );
+          return;
+        }
+        setupMessaging();
+      })();
     }, 500);
 
     return () => {
@@ -369,12 +399,16 @@ const MainNavigator = () => {
               <RootStack.Screen name="CreateCommunityScreen" component={CreateCommunityScreen} />
               <RootStack.Screen name="CreateGroupChatScreen" component={CreateGroupChatScreen} />
               <RootStack.Screen name="ProfileScreen" component={ProfileScreen} />
+              <RootStack.Screen name="TermsAndConditionsScreen" component={TermsAndConditionsScreen} />
+              <RootStack.Screen name="PrivacyPolicyScreen" component={PrivacyPolicyScreen} />
             </>
           ) : (
             <>
               {/* Always register both screens for unauthenticated users */}
               <RootStack.Screen name="OnboardingScreen" component={OnboardingScreen} />
               <RootStack.Screen name="AuthScreen" component={AuthScreen} />
+              <RootStack.Screen name="TermsAndConditionsScreen" component={TermsAndConditionsScreen} />
+              <RootStack.Screen name="PrivacyPolicyScreen" component={PrivacyPolicyScreen} />
             </>
           )}
         </RootStack.Navigator>

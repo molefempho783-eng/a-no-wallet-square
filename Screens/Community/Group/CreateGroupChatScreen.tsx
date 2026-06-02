@@ -83,20 +83,23 @@ const CreateGroupChatScreen = () => {
     return unsubscribe;
   }, []);
 
-  // Only the community creator can create group chats.
-  const checkCommunityCreator = async (): Promise<boolean> => {
+  // Community creator can always create; members can create only when enabled by creator.
+  const checkCanCreateGroup = async (): Promise<boolean> => {
     if (!user?.uid) return false;
     try {
       const communityRef = doc(db, "communities", communityId);
       const communitySnap = await getDoc(communityRef);
-      if (
-        communitySnap.exists() &&
-        communitySnap.data().createdBy === user.uid
-      ) {
-        return true;
-      }
+      if (!communitySnap.exists()) return false;
+      const data = communitySnap.data();
+      if (data.createdBy === user.uid) return true;
 
-      return false;
+      if (data.allowMembersToCreateGroups !== true) return false;
+
+      const userRef = doc(db, "users", user.uid);
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) return false;
+      const joinedCommunities = userSnap.data().joinedCommunities || [];
+      return Array.isArray(joinedCommunities) && joinedCommunities.includes(communityId);
     } catch (error) {
       console.error("Error checking membership:", error);
       return false;
@@ -171,11 +174,11 @@ const CreateGroupChatScreen = () => {
 
     setLoading(true);
     try {
-      const isCreator = await checkCommunityCreator();
-      if (!isCreator) {
+      const canCreate = await checkCanCreateGroup();
+      if (!canCreate) {
         Alert.alert(
           "Permission Denied",
-          "Only the community creator can create group chats."
+          "You are not allowed to create groups in this community."
         );
         return;
       }

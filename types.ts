@@ -4,6 +4,8 @@ import { Timestamp } from 'firebase/firestore';
 export type RootStackParamList = {
     OnboardingScreen: undefined;
     AuthScreen: undefined;
+    TermsAndConditionsScreen: undefined;
+    PrivacyPolicyScreen: undefined;
     CommunityScreen: undefined;
     CommunityDetailScreen: { community: Community };
     CreateCommunityScreen: undefined;
@@ -25,7 +27,8 @@ export type RootStackParamList = {
       | "CommunityScreen"
       | "UserScreen"
       | "BusinessesScreen"
-      | "MapScreen";
+      | "MapScreen"
+      | "DonationScreen";
   };
 
     // NEW SCREENS FOR BUSINESSES
@@ -83,6 +86,8 @@ export type Community = {
   name: string;
   description?: string;
   logo?: string;
+  /** Community owner can allow members to create group chats */
+  allowMembersToCreateGroups?: boolean;
   createdBy: string;
   createdAt: any; 
   location?: string;
